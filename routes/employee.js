@@ -1,4 +1,4 @@
-// routes/employee.js
+// routes/employee.js - เพิ่ม endpoints ใหม่
 const express = require('express');
 const router = express.Router();
 const openRouter = express.Router();
@@ -111,6 +111,7 @@ router.get('/profile', asyncHandler(async (req, res) => {
   const [detail] = await dbConfig.execute(`
     SELECT e.*, eb.vacation_days_total, eb.vacation_days_used,
            eb.sick_days_total, eb.sick_days_used,
+           eb.personal_days_total, eb.personal_days_used,
            eb.social_security_number, eb.bonus_current_month
     FROM employees e
     LEFT JOIN employee_benefits eb ON e.id = eb.employee_id
@@ -144,6 +145,9 @@ router.get('/profile', asyncHandler(async (req, res) => {
       sickDaysTotal: e.sick_days_total || 30,
       sickDaysUsed: e.sick_days_used || 0,
       sickDaysRemaining: (e.sick_days_total || 30) - (e.sick_days_used || 0),
+      personalDaysTotal: e.personal_days_total || 5,
+      personalDaysUsed: e.personal_days_used || 0,
+      personalDaysRemaining: (e.personal_days_total || 5) - (e.personal_days_used || 0),
       socialSecurityNumber: e.social_security_number,
       bonusCurrentMonth: e.bonus_current_month || 0
     }
@@ -173,11 +177,12 @@ router.put('/profile', asyncHandler(async (req, res) => {
 }));
 
 /**
- * GET /api/employee/welfare
+ * GET /api/employee/welfare - สวัสดิการ
  */
 router.get('/welfare', asyncHandler(async (req, res) => {
   const employeeId = req.employee.id;
 
+  // ดึงข้อมูลสวัสดิการ
   const [benefits] = await dbConfig.execute(
     'SELECT * FROM employee_benefits WHERE employee_id = ?',
     [employeeId]
@@ -185,17 +190,21 @@ router.get('/welfare', asyncHandler(async (req, res) => {
 
   let b = benefits[0];
   if (!b) {
+    // สร้างข้อมูลสวัสดิการเริ่มต้นถ้าไม่มี
     await dbConfig.execute('INSERT INTO employee_benefits (employee_id) VALUES (?)', [employeeId]);
     b = {
       vacation_days_total: 10,
       vacation_days_used: 0,
       sick_days_total: 30,
       sick_days_used: 0,
+      personal_days_total: 5,
+      personal_days_used: 0,
       social_security_number: null,
       bonus_current_month: 0
     };
   }
 
+  // คำนวณ OT ในเดือนปัจจุบัน
   const currentMonth = new Date().toISOString().slice(0, 7);
   const [ot] = await dbConfig.execute(`
     SELECT SUM(overtime_hours) AS total_overtime
@@ -204,53 +213,104 @@ router.get('/welfare', asyncHandler(async (req, res) => {
   `, [employeeId, currentMonth]);
 
   const overtimeHours = ot[0]?.total_overtime || 0;
-  const hourlyRate = req.employee.salary ? (req.employee.salary / 240) : 0;
+  const hourlyRate = req.employee.salary ? (req.employee.salary / 240) : 0; // สมมติ 30 วัน x 8 ชม = 240 ชม/เดือน
   const overtimePay = Math.round(overtimeHours * hourlyRate * 1.5);
 
+  // ดึงข้อมูลคำขอลาที่ pending
+  const [pendingLeaves] = await dbConfig.execute(`
+    SELECT COUNT(*) AS pending_count,
+           SUM(CASE WHEN leave_type = 'vacation' THEN DATEDIFF(end_date, start_date) + 1 ELSE 0 END) AS pending_vacation_days
+    FROM leave_requests 
+    WHERE employee_id = ? AND status = 'pending'
+  `, [employeeId]);
+
+  const pendingInfo = pendingLeaves[0] || { pending_count: 0, pending_vacation_days: 0 };
+
   res.json(responseHelpers.success({
-    salary: req.employee.salary,
-    payDate: '25 ของทุกเดือน',
-    socialSecurity: b.social_security_number || 'ยังไม่ได้ระบุ',
-    vacationDays: (b.vacation_days_total || 10) - (b.vacation_days_used || 0),
-    usedVacationDays: b.vacation_days_used || 0,
-    totalVacationDays: b.vacation_days_total || 10,
-    sickDays: (b.sick_days_total || 30) - (b.sick_days_used || 0),
-    usedSickDays: b.sick_days_used || 0,
-    totalSickDays: b.sick_days_total || 30,
-    bonus: b.bonus_current_month || 0,
-    overtime: overtimePay,
-    overtimeHours
+    salary: {
+      monthly: req.employee.salary,
+      payDate: '25 ของทุกเดือน',
+      nextPayDate: getNextPayDate()
+    },
+    socialSecurity: {
+      number: b.social_security_number || 'ยังไม่ได้ระบุ',
+      rate: '5% ของเงินเดือน',
+      monthlyContribution: req.employee.salary ? Math.round(req.employee.salary * 0.05) : 0
+    },
+    leaveDays: {
+      vacation: {
+        total: b.vacation_days_total || 10,
+        used: b.vacation_days_used || 0,
+        remaining: (b.vacation_days_total || 10) - (b.vacation_days_used || 0),
+        pending: pendingInfo.pending_vacation_days || 0
+      },
+      sick: {
+        total: b.sick_days_total || 30,
+        used: b.sick_days_used || 0,
+        remaining: (b.sick_days_total || 30) - (b.sick_days_used || 0)
+      },
+      personal: {
+        total: b.personal_days_total || 5,
+        used: b.personal_days_used || 0,
+        remaining: (b.personal_days_total || 5) - (b.personal_days_used || 0)
+      }
+    },
+    overtime: {
+      hoursThisMonth: overtimeHours,
+      estimatedPay: overtimePay,
+      rate: '1.5 เท่าของค่าจ้างต่อชั่วโมง'
+    },
+    bonus: {
+      currentMonth: b.bonus_current_month || 0,
+      description: 'โบนัสประจำเดือน'
+    },
+    pendingRequests: {
+      leaveRequests: pendingInfo.pending_count || 0
+    }
   }, 'ข้อมูลสวัสดิการ'));
 }));
 
 /**
- * GET /api/employee/attendance/history
+ * GET /api/employee/attendance/history - ประวัติการทำงาน
  */
 router.get('/attendance/history', asyncHandler(async (req, res) => {
   const employeeId = req.employee.id;
-  const { limit = 30, page = 1 } = req.query;
+  const { limit = 30, page = 1, month, year } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
+
+  let whereClause = 'WHERE employee_id = ?';
+  let params = [employeeId];
+
+  // ถ้าระบุเดือน/ปี
+  if (month && year) {
+    whereClause += ' AND YEAR(date) = ? AND MONTH(date) = ?';
+    params.push(parseInt(year), parseInt(month));
+  } else if (year) {
+    whereClause += ' AND YEAR(date) = ?';
+    params.push(parseInt(year));
+  }
 
   const [records] = await dbConfig.execute(`
     SELECT date, check_in_time, check_out_time, work_hours, overtime_hours, status, notes
     FROM attendance
-    WHERE employee_id = ?
+    ${whereClause}
     ORDER BY date DESC
     LIMIT ? OFFSET ?`,
-    [employeeId, parseInt(limit), offset]
+    [...params, parseInt(limit), offset]
   );
 
   const [cnt] = await dbConfig.execute(
-    'SELECT COUNT(*) AS count FROM attendance WHERE employee_id = ?',
-    [employeeId]
+    `SELECT COUNT(*) AS count FROM attendance ${whereClause}`,
+    params
   );
 
   const history = records.map(r => ({
     date: dateHelpers.formatDate(r.date),
+    dateObject: r.date,
     checkIn: r.check_in_time ? dateHelpers.formatTime(r.check_in_time) : null,
     checkOut: r.check_out_time ? dateHelpers.formatTime(r.check_out_time) : null,
-    workHours: r.work_hours,
-    overtimeHours: r.overtime_hours,
+    workHours: parseFloat(r.work_hours || 0),
+    overtimeHours: parseFloat(r.overtime_hours || 0),
     status: r.status,
     statusText: textHelpers.getStatusText(r.status),
     notes: r.notes
@@ -265,7 +325,7 @@ router.get('/attendance/history', asyncHandler(async (req, res) => {
 }));
 
 /**
- * GET /api/employee/attendance/summary
+ * GET /api/employee/attendance/summary - สรุปการทำงาน
  */
 router.get('/attendance/summary', asyncHandler(async (req, res) => {
   const employeeId = req.employee.id;
@@ -276,7 +336,7 @@ router.get('/attendance/summary', asyncHandler(async (req, res) => {
   const m = parseInt(month || (now.getMonth() + 1));
 
   const start = `${y}-${String(m).padStart(2, '0')}-01`;
-  const end = new Date(y, m, 0).toISOString().split('T')[0];
+  const end = new Date(y, m, 0).toISOString().split('T')[0]; // วันสุดท้ายของเดือน
 
   const [summary] = await dbConfig.execute(`
     SELECT 
@@ -286,7 +346,9 @@ router.get('/attendance/summary', asyncHandler(async (req, res) => {
       SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
       SUM(work_hours) AS total_work_hours,
       SUM(overtime_hours) AS total_overtime_hours,
-      AVG(work_hours) AS avg_work_hours
+      AVG(work_hours) AS avg_work_hours,
+      MIN(check_in_time) AS earliest_checkin,
+      MAX(check_out_time) AS latest_checkout
     FROM attendance
     WHERE employee_id = ? AND date BETWEEN ? AND ?`,
     [employeeId, start, end]
@@ -297,11 +359,20 @@ router.get('/attendance/summary', asyncHandler(async (req, res) => {
     ? parseFloat(((s.present_days / s.total_days) * 100).toFixed(1))
     : 0;
 
+  // คำนวณค่าจ้าง OT
+  const hourlyRate = req.employee.salary ? (req.employee.salary / 240) : 0;
+  const overtimePay = Math.round((s.total_overtime_hours || 0) * hourlyRate * 1.5);
+
   res.json(responseHelpers.success({
     period: {
       year: y,
       month: m,
-      monthName: dateHelpers.formatDate(`${y}-${m}-01`, 'MMMM YYYY')
+      monthName: new Intl.DateTimeFormat('th-TH', { 
+        year: 'numeric', 
+        month: 'long' 
+      }).format(new Date(y, m - 1, 1)),
+      startDate: start,
+      endDate: end
     },
     statistics: {
       totalDays: s.total_days || 0,
@@ -311,10 +382,97 @@ router.get('/attendance/summary', asyncHandler(async (req, res) => {
       totalWorkHours: parseFloat(s.total_work_hours || 0),
       totalOvertimeHours: parseFloat(s.total_overtime_hours || 0),
       averageWorkHours: parseFloat(s.avg_work_hours || 0),
-      attendanceRate
+      attendanceRate,
+      estimatedOvertimePay: overtimePay,
+      earliestCheckIn: s.earliest_checkin ? dateHelpers.formatTime(s.earliest_checkin) : null,
+      latestCheckOut: s.latest_checkout ? dateHelpers.formatTime(s.latest_checkout) : null
     }
   }, 'สรุปการทำงานรายเดือน'));
 }));
+
+/**
+ * GET /api/employee/leaves - ประวัติการลา
+ */
+router.get('/leaves', asyncHandler(async (req, res) => {
+  const employeeId = req.employee.id;
+  const { limit = 20, page = 1, status } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+
+  let whereClause = 'WHERE employee_id = ?';
+  let params = [employeeId];
+
+  if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+    whereClause += ' AND status = ?';
+    params.push(status);
+  }
+
+  const [leaves] = await dbConfig.execute(`
+    SELECT id, leave_type, start_date, end_date, reason, status, 
+           rejection_reason, created_at, approved_at,
+           DATEDIFF(end_date, start_date) + 1 AS days_count
+    FROM leave_requests
+    ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?`,
+    [...params, parseInt(limit), offset]
+  );
+
+  const [cnt] = await dbConfig.execute(
+    `SELECT COUNT(*) AS count FROM leave_requests ${whereClause}`,
+    params
+  );
+
+  const leaveHistory = leaves.map(leave => ({
+    id: leave.id,
+    leaveType: leave.leave_type,
+    leaveTypeText: getLeaveTypeText(leave.leave_type),
+    startDate: dateHelpers.formatDate(leave.start_date),
+    endDate: dateHelpers.formatDate(leave.end_date),
+    daysCount: leave.days_count,
+    reason: leave.reason,
+    status: leave.status,
+    statusText: textHelpers.getStatusText(leave.status),
+    rejectionReason: leave.rejection_reason,
+    submittedAt: dateHelpers.formatDateTime(leave.created_at),
+    approvedAt: leave.approved_at ? dateHelpers.formatDateTime(leave.approved_at) : null
+  }));
+
+  res.json(responseHelpers.paginated(leaveHistory, {
+    page: parseInt(page),
+    limit: parseInt(limit),
+    total: cnt[0].count,
+    totalPages: Math.ceil(cnt[0].count / parseInt(limit))
+  }, 'ประวัติการลา'));
+}));
+
+// Helper functions
+function getNextPayDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  
+  // วันที่ 25 ของเดือนนี้
+  let payDate = new Date(year, month, 25);
+  
+  // ถ้าผ่านวันที่ 25 แล้ว ให้เป็นเดือนหน้า
+  if (now.getDate() > 25) {
+    payDate = new Date(year, month + 1, 25);
+  }
+  
+  return dateHelpers.formatDate(payDate);
+}
+
+function getLeaveTypeText(type) {
+  const map = {
+    'sick': 'ลาป่วย',
+    'personal': 'ลาธุระส่วนตัว', 
+    'vacation': 'ลาพักผ่อน',
+    'emergency': 'ลาฉุกเฉิน',
+    'maternity': 'ลาคลอด',
+    'paternity': 'ลาบิดา'
+  };
+  return map[type] || type;
+}
 
 /**
  * -------- Public Open Routes (ไม่ต้อง auth) --------
