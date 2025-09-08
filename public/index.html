@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบพนักงาน</title>
+    <script src="https://static.line-scdn.net/liff/edge/2.1/sdk.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+            overflow-x: hidden;
+        }
+
+        /* Loading Screen */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 9999;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* App Container */
+        .app-container {
+            max-width: 414px;
+            margin: 0 auto;
+            background: #f8fafb;
+            min-height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .app-header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 60px 24px 40px;
+            text-align: center;
+            position: relative;
+            border-radius: 0 0 30px 30px;
+            box-shadow: 0 10px 30px rgba(79, 172, 254, 0.3);
+        }
+
+        .app-header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 20"><defs><radialGradient id="a" cx="50%" cy="0%" r="100%"><stop offset="0%" stop-color="white" stop-opacity="0.1"/><stop offset="100%" stop-color="white" stop-opacity="0"/></radialGradient></defs><rect width="100" height="20" fill="url(%23a)"/></svg>');
+            border-radius: 0 0 30px 30px;
+        }
+
+        .header-content {
+            position: relative;
+            z-index: 2;
+        }
+
+        .app-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .employee-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 12px 16px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        #employee-name {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .status {
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+        }
+
+        .status.working { 
+            background: rgba(76, 175, 80, 0.9); 
+            color: white; 
+        }
+        .status.should-work { 
+            background: rgba(255, 193, 7, 0.9); 
+            color: white; 
+        }
+        .status.off-work { 
+            background: rgba(158, 158, 158, 0.9); 
+            color: white; 
+        }
+
+        /* Menu Grid */
+        .menu-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            padding: 24px;
+            margin-top: -20px;
+            position: relative;
+            z-index: 10;
+        }
+
+        .menu-item {
+            background: white;
+            border: none;
+            border-radius: 20px;
+            padding: 24px 16px;
+            text-align: center;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .menu-item:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.12);
+        }
+
+        .menu-item:active {
+            transform: translateY(-2px);
+        }
+
+        .menu-item::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(79, 172, 254, 0.1), transparent);
+            transition: left 0.6s;
+        }
+
+        .menu-item:hover::before {
+            left: 100%;
+        }
+
+        .menu-icon {
+            font-size: 36px;
+            margin-bottom: 12px;
+            display: block;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+        }
+
+        .menu-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 4px;
+            line-height: 1.2;
+        }
+
+        .menu-subtitle {
+            font-size: 12px;
+            color: #718096;
+            font-weight: 500;
+        }
+
+        #btn-checkin {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        #btn-checkin .menu-title,
+        #btn-checkin .menu-subtitle {
+            color: white;
+        }
+
+        /* Today's Status */
+        .today-status {
+            margin: 0 24px 24px;
+            background: white;
+            border-radius: 20px;
+            padding: 24px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+        }
+
+        .status-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .status-header h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2d3748;
+            margin-left: 8px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .status-item {
+            background: #f7fafc;
+            padding: 16px;
+            border-radius: 16px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+
+        .status-item:hover {
+            background: #edf2f7;
+            transform: translateY(-1px);
+        }
+
+        .status-label {
+            display: block;
+            font-size: 12px;
+            color: #718096;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        .status-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.6);
+            animation: fadeIn 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 0;
+            border-radius: 20px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow: hidden;
+            animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(-50px) scale(0.95); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        .modal-header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 24px;
+            position: relative;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .close {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: white;
+            font-size: 28px;
+            font-weight: 300;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+
+        .close:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-50%) rotate(90deg);
+        }
+
+        .modal-body {
+            padding: 24px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 14px;
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+            background: #f7fafc;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: #4facfe;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }
+
+        .form-buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 24px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(79, 172, 254, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f7fafc;
+            color: #4a5568;
+            border: 2px solid #e2e8f0;
+        }
+
+        .btn-secondary:hover {
+            background: #edf2f7;
+            border-color: #cbd5e0;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* Cards */
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            border-left: 4px solid #4facfe;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+
+        .card h3 {
+            margin-bottom: 12px;
+            color: #2d3748;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .card p {
+            margin-bottom: 8px;
+            color: #4a5568;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .card strong {
+            color: #2d3748;
+            font-weight: 600;
+        }
+
+        /* History Items */
+        .history-item {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 12px;
+            border-left: 4px solid #4facfe;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        }
+
+        .history-date {
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: #2d3748;
+            font-size: 16px;
+        }
+
+        .history-times {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .history-summary {
+            font-size: 14px;
+            color: #4a5568;
+            margin-bottom: 8px;
+        }
+
+        .history-status {
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            display: inline-block;
+            font-weight: 600;
+        }
+
+        .history-status.present { background: #c6f6d5; color: #22543d; }
+        .history-status.late { background: #fef5e7; color: #c05621; }
+        .history-status.absent { background: #fed7d7; color: #c53030; }
+
+        /* Messages */
+        .message {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-weight: 600;
+            z-index: 3000;
+            display: none;
+            animation: slideDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(10px);
+        }
+
+        @keyframes slideDown {
+            from { transform: translateX(-50%) translateY(-20px); opacity: 0; }
+            to { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
+
+        .message.success {
+            background: rgba(72, 187, 120, 0.95);
+            color: white;
+        }
+
+        .message.error {
+            background: rgba(245, 101, 101, 0.95);
+            color: white;
+        }
+
+        .message.info {
+            background: rgba(79, 172, 254, 0.95);
+            color: white;
+        }
+
+        /* Loading states */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #718096;
+            font-size: 14px;
+        }
+
+        .loading::before {
+            content: '';
+            width: 24px;
+            height: 24px;
+            border: 3px solid #e2e8f0;
+            border-radius: 50%;
+            border-top-color: #4facfe;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 12px;
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .app-container {
+                max-width: 100%;
+            }
+            
+            .menu-grid {
+                padding: 20px 16px;
+                gap: 12px;
+            }
+            
+            .menu-item {
+                padding: 20px 12px;
+            }
+            
+            .today-status {
+                margin: 0 16px 20px;
+            }
+            
+            .modal-content {
+                width: 95%;
+                margin: 5% auto;
+            }
+        }
+
+        /* Utility classes */
+        .text-center { text-align: center; }
+        .hidden { display: none !important; }
+        .visible { display: block !important; }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading-screen">
+        <div class="loading-spinner"></div>
+        <p>กำลังโหลด...</p>
+    </div>
+
+    <div id="app" class="app-container" style="display: none;">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="app-title">ระบบพนักงาน</div>
+                <div class="employee-info">
+                    <span id="employee-name">กำลังโหลด...</span>
+                    <span id="work-status" class="status">กำลังตรวจสอบ</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Menu Grid -->
+        <div class="menu-grid">
+            <button class="menu-item" id="btn-checkin" onclick="handleAttendance()">
+                <div class="menu-icon">⏰</div>
+                <div class="menu-title">เข้า-ออกงาน</div>
+                <div class="menu-subtitle">Check In/Out</div>
+            </button>
+
+            <button class="menu-item" id="btn-leave" onclick="showLeaveForm()">
+                <div class="menu-icon">📝</div>
+                <div class="menu-title">แจ้งลาหยุด</div>
+                <div class="menu-subtitle">Leave Request</div>
+            </button>
+
+            <button class="menu-item" id="btn-welfare" onclick="showWelfare()">
+                <div class="menu-icon">🎁</div>
+                <div class="menu-title">สวัสดิการ</div>
+                <div class="menu-subtitle">Employee Benefits</div>
+            </button>
+
+            <button class="menu-item" id="btn-history" onclick="showHistory()">
+                <div class="menu-icon">📊</div>
+                <div class="menu-title">ประวัติการทำงาน</div>
+                <div class="menu-subtitle">Work History</div>
+            </button>
+        </div>
+
+        <!-- Today's Status -->
+        <div class="today-status" id="today-status">
+            <div class="status-header">
+                <span>📅</span>
+                <h3>สถานะวันนี้</h3>
+            </div>
+            <div class="status-grid">
+                <div class="status-item">
+                    <span class="status-label">เช็คอิน</span>
+                    <div class="status-value" id="checkin-time">-</div>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">เช็คเอาท์</span>
+                    <div class="status-value" id="checkout-time">-</div>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">ชั่วโมงทำงาน</span>
+                    <div class="status-value" id="work-hours">0</div>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">สถานะ</span>
+                    <div class="status-value" id="attendance-status">-</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title" class="modal-title">หัวข้อ</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- เนื้อหาจะถูกใส่ที่นี่ -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Success/Error Messages -->
+    <div id="message" class="message"></div>
+
+    <!-- Scripts -->
+    <script src="/config.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
