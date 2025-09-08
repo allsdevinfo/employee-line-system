@@ -1,0 +1,28 @@
+# Database Configuration
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=employee_system
+
+# Server Configuration
+PORT=3000
+NODE_ENV=development
+
+# LINE Configuration (จะได้จากการสร้าง LINE Channel)
+LINE_CHANNEL_ACCESS_TOKEN=UZkRDXOnzKVrorYsX8U611olZxvk2Ihk5kxC1M83/vl5ctFu91lcw/zGzgPAAq4VnZ8vJe0ICRWyKktAeOFVOsiH7HQ5TCwxkYbVIAQ5IILRv2E+lQOA02ztIkMQakGPYLJuGUnfkZ/iEQkCS/UFVAdB04t89/1O/w1cDnyilFU=
+LINE_CHANNEL_SECRET=fbbf32b2e99dbd303fab9483908576f3
+LIFF_ID=2008067953-BmmaW35R
+
+# Company Settings
+COMPANY_NAME=บริษัท ตัวอย่าง จำกัด
+OFFICE_LATITUDE=13.8843126
+OFFICE_LONGITUDE=100.612173
+CHECKIN_RADIUS=100
+
+JWT_SECRET=please_change_me
+LINE_CHANNEL_ID=2008067953
+
+ADMIN_API_KEY=super_secret_key_please_change
+
+
+
